@@ -24,246 +24,47 @@ import java.util.Comparator;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends Activity {
-    private static final int CAMERA_REQUEST=7;
-    private static final long SCAN_TARGET_MS=15000L;
-    private static final long MIN_PEAK_GAP_MS=350L;
-    private static final int MIN_SAMPLES=50;
+ private static final int CAMERA_REQUEST=7; private static final long SCAN_TARGET_MS=15000L,MIN_PEAK_GAP_MS=350L; private static final int MIN_SAMPLES=50;
+ private final Handler mainHandler=new Handler(Looper.getMainLooper()); private final ArrayList<Sample> samples=new ArrayList<>(); private final AtomicBoolean processingFrame=new AtomicBoolean(false);
+ private LinearLayout home,scan; private ScrollView questions,output; private SurfaceView camera; private TextView bpm,scanStatus,timer,signal,text; private ProgressBar progress;
+ private CameraDevice device; private CameraCaptureSession session; private ImageReader reader; private SurfaceHolder.Callback surfaceCallback; private long started,lastUiUpdate; private Integer pulse; private boolean scanning;
 
-    private final Handler mainHandler=new Handler(Looper.getMainLooper());
-    private final ArrayList<Sample> samples=new ArrayList<>();
-    private final AtomicBoolean processingFrame=new AtomicBoolean(false);
-
-    private LinearLayout home,scan;
-    private ScrollView questions,output;
-    private SurfaceView camera;
-    private TextView bpm,scanStatus,timer,signal,text;
-    private ProgressBar progress;
-    private CameraDevice device;
-    private CameraCaptureSession session;
-    private ImageReader reader;
-    private SurfaceHolder.Callback surfaceCallback;
-    private long started,lastUiUpdate;
-    private Integer pulse;
-    private boolean scanning;
-
-    @Override public void onCreate(Bundle state){
-        super.onCreate(state);
-        setContentView(R.layout.activity_main);
-        home=findViewById(R.id.home); scan=findViewById(R.id.scan);
-        questions=findViewById(R.id.questions); output=findViewById(R.id.output);
-        camera=findViewById(R.id.camera); bpm=findViewById(R.id.bpm);
-        scanStatus=findViewById(R.id.scan_status); timer=findViewById(R.id.timer);
-        signal=findViewById(R.id.signal); progress=findViewById(R.id.scan_progress);
-        text=findViewById(R.id.text);
-        findViewById(R.id.start).setOnClickListener(v->askCamera());
-        findViewById(R.id.finish).setOnClickListener(v->finishScan());
-        findViewById(R.id.result).setOnClickListener(v->makeResult());
-        findViewById(R.id.again).setOnClickListener(v->show(home));
-        findViewById(R.id.cancel_scan).setOnClickListener(v->{stopCam();show(home);});
-    }
-
-    private void show(View target){
-        home.setVisibility(View.GONE); scan.setVisibility(View.GONE);
-        questions.setVisibility(View.GONE); output.setVisibility(View.GONE);
-        target.setVisibility(View.VISIBLE);
-    }
-
-    private void askCamera(){
-        if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)
-            requestPermissions(new String[]{Manifest.permission.CAMERA},CAMERA_REQUEST);
-        else startScan();
-    }
-
-    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){
-        super.onRequestPermissionsResult(request,permissions,grants);
-        if(request==CAMERA_REQUEST&&grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED) startScan();
-        else if(request==CAMERA_REQUEST){ show(home); Toast.makeText(this,"Camera permission is required.",Toast.LENGTH_LONG).show(); }
-    }
-
-    private void startScan(){
-        stopCam(); show(scan); samples.clear(); pulse=null; scanning=true;
-        started=System.currentTimeMillis(); lastUiUpdate=0L;
-        bpm.setText("Preparing scan…");
-        scanStatus.setText("Place one fingertip gently over the rear camera and flash. Keep still.");
-        signal.setText("● Waiting for fingertip signal");
-        timer.setText("0:15"); progress.setProgress(0);
-        SurfaceHolder holder=camera.getHolder();
-        if(holder.getSurface().isValid()) openCamera(holder.getSurface());
-        else {
-            surfaceCallback=new SurfaceHolder.Callback(){
-                @Override public void surfaceCreated(SurfaceHolder h){openCamera(h.getSurface());}
-                @Override public void surfaceChanged(SurfaceHolder h,int f,int w,int h2){}
-                @Override public void surfaceDestroyed(SurfaceHolder h){}
-            };
-            holder.addCallback(surfaceCallback);
-        }
-        updateScanUi();
-    }
-
-    private void openCamera(Surface surface){
-        try{
-            CameraManager manager=(CameraManager)getSystemService(Context.CAMERA_SERVICE);
-            String cameraId=findRearCamera(manager);
-            if(cameraId==null){failScan("Rear camera not available.");return;}
-            CameraCharacteristics characteristics=manager.getCameraCharacteristics(cameraId);
-            android.hardware.camera2.params.StreamConfigurationMap map=
-                characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-            if(map==null){failScan("Camera configuration is unavailable.");return;}
-            android.util.Size size=chooseReaderSize(map.getOutputSizes(ImageFormat.YUV_420_888));
-            reader=ImageReader.newInstance(size.getWidth(),size.getHeight(),ImageFormat.YUV_420_888,3);
-            reader.setOnImageAvailableListener(r->{
-                Image image=null;
-                try{
-                    image=r.acquireLatestImage();
-                    if(image!=null&&scanning&&processingFrame.compareAndSet(false,true)) processFrame(image);
-                }finally{
-                    if(image!=null) image.close();
-                    processingFrame.set(false);
-                }
-            },mainHandler);
-            if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)return;
-            manager.openCamera(cameraId,new CameraDevice.StateCallback(){
-                @Override public void onOpened(CameraDevice d){device=d;createSession(surface,characteristics);}
-                @Override public void onDisconnected(CameraDevice d){d.close();if(device==d)device=null;if(scanning)failScan("Camera disconnected. Please try again.");}
-                @Override public void onError(CameraDevice d,int error){d.close();if(device==d)device=null;if(scanning)failScan("Camera could not be started. Please try again.");}
-            },mainHandler);
-        }catch(SecurityException e){failScan("Camera permission is required.");}
-        catch(Exception e){failScan("Camera setup failed. Please try again.");}
-    }
-
-    private String findRearCamera(CameraManager manager)throws Exception{
-        for(String id:manager.getCameraIdList()){
-            Integer facing=manager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING);
-            if(facing!=null&&facing==CameraCharacteristics.LENS_FACING_BACK)return id;
-        }
-        return null;
-    }
-
-    private android.util.Size chooseReaderSize(android.util.Size[] sizes){
-        if(sizes==null||sizes.length==0)return new android.util.Size(640,480);
-        ArrayList<android.util.Size> candidates=new ArrayList<>(Arrays.asList(sizes));
-        Collections.sort(candidates,Comparator.comparingLong(s->(long)s.getWidth()*s.getHeight()));
-        for(android.util.Size s:candidates)
-            if(s.getWidth()>=320&&s.getWidth()<=1280&&s.getHeight()>=240&&s.getHeight()<=960)return s;
-        return candidates.get(0);
-    }
-
-    private void createSession(Surface previewSurface,CameraCharacteristics characteristics){
-        if(device==null||reader==null)return;
-        try{
-            device.createCaptureSession(Arrays.asList(previewSurface,reader.getSurface()),new CameraCaptureSession.StateCallback(){
-                @Override public void onConfigured(CameraCaptureSession cs){
-                    if(device==null||!scanning)return;
-                    session=cs;
-                    try{
-                        CaptureRequest.Builder request=device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-                        request.addTarget(previewSurface); request.addTarget(reader.getSurface());
-                        Boolean flash=characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
-                        if(Boolean.TRUE.equals(flash))request.set(CaptureRequest.FLASH_MODE,CaptureRequest.FLASH_MODE_TORCH);
-                        cs.setRepeatingRequest(request.build(),null,mainHandler);
-                        mainHandler.postDelayed(()->{if(scanning)scanStatus.setText("Hold still. Keep your fingertip covering the camera and flash.");},1200L);
-                    }catch(Exception e){failScan("Could not start the scan camera.");}
-                }
-                @Override public void onConfigureFailed(CameraCaptureSession cs){failScan("Camera preview could not be configured.");}
-            },mainHandler);
-        }catch(Exception e){failScan("Could not start camera session.");}
-    }
-
-    private void processFrame(Image image){
-        long now=System.currentTimeMillis();
-        if(!scanning||now-started<1200L)return;
-        Image.Plane plane=image.getPlanes()[0];
-        ByteBuffer buffer=plane.getBuffer().duplicate();
-        int width=image.getWidth(),height=image.getHeight();
-        int rowStride=plane.getRowStride(),pixelStride=plane.getPixelStride();
-        if(width<=0||height<=0||pixelStride<=0)return;
-        int left=width/4,right=(width*3)/4,top=height/4,bottom=(height*3)/4;
-        long sum=0,count=0;
-        for(int y=top;y<bottom;y+=4){
-            int row=y*rowStride;
-            for(int x=left;x<right;x+=4){
-                int index=row+x*pixelStride;
-                if(index>=0&&index<buffer.limit()){sum+=buffer.get(index)&0xFF;count++;}
-            }
-        }
-        if(count==0)return;
-        samples.add(new Sample(now,(double)sum/count));
-        while(!samples.isEmpty()&&now-samples.get(0).time>SCAN_TARGET_MS)samples.remove(0);
-        if(now-lastUiUpdate>=500L){
-            lastUiUpdate=now; Integer estimate=estimatePulse(); if(estimate!=null)pulse=estimate;
-            final long elapsed=now-started; final Integer shown=pulse;
-            runOnUiThread(()->{
-                updateScanUi();
-                if(elapsed<5000L){bpm.setText("Calibrating…");signal.setText("● Detecting fingertip signal");}
-                else if(shown==null){bpm.setText("Reading…");signal.setText("● Keep fingertip still");}
-                else{bpm.setText("Estimated pulse\n"+shown+" BPM");signal.setText("● Signal detected — keep still");}
-            });
-        }
-        if(now-started>=SCAN_TARGET_MS)runOnUiThread(this::finishScan);
-    }
-
-    private Integer estimatePulse(){
-        if(samples.size()<MIN_SAMPLES)return null;
-        double mean=0; for(Sample s:samples)mean+=s.value; mean/=samples.size();
-        double variance=0; for(Sample s:samples){double d=s.value-mean;variance+=d*d;}
-        double sd=Math.sqrt(variance/samples.size()); if(sd<0.7)return null;
-        int peaks=0; long lastPeak=-Long.MAX_VALUE/4;
-        for(int i=1;i<samples.size()-1;i++){
-            double prev=samples.get(i-1).value,current=samples.get(i).value,next=samples.get(i+1).value;
-            if(current>prev&&current>=next&&current-mean>0.35*sd&&samples.get(i).time-lastPeak>=MIN_PEAK_GAP_MS){peaks++;lastPeak=samples.get(i).time;}
-        }
-        double seconds=(samples.get(samples.size()-1).time-samples.get(0).time)/1000.0;
-        if(seconds<6.0||peaks<4)return null;
-        int estimate=(int)Math.round((peaks/seconds)*60.0);
-        return estimate>=40&&estimate<=180?estimate:null;
-    }
-
-    private void updateScanUi(){
-        if(!scanning)return;
-        long elapsed=Math.max(0L,System.currentTimeMillis()-started);
-        int remaining=(int)Math.max(0L,(SCAN_TARGET_MS-elapsed+999L)/1000L);
-        timer.setText("0:"+(remaining<10?"0":"")+remaining);
-        progress.setProgress((int)Math.min(100L,(elapsed*100L)/SCAN_TARGET_MS));
-        if(elapsed>=SCAN_TARGET_MS)finishScan();
-    }
-
-    private void finishScan(){
-        if(!scanning)return;
-        Integer finalEstimate=estimatePulse(); if(finalEstimate!=null)pulse=finalEstimate;
-        scanning=false; stopCam(); show(questions);
-    }
-
-    private void failScan(String message){
-        scanning=false; stopCam(); show(scan);
-        bpm.setText(message); signal.setText("● Scan stopped");
-    }
-
-    private void stopCam(){
-        try{if(session!=null)session.close();if(device!=null)device.close();if(reader!=null)reader.close();}catch(Exception ignored){}
-        session=null;device=null;reader=null;scanning=false;
-        if(surfaceCallback!=null){try{camera.getHolder().removeCallback(surfaceCallback);}catch(Exception ignored){}surfaceCallback=null;}
-    }
-
-    private void makeResult(){
-        boolean chest=((CheckBox)findViewById(R.id.chest)).isChecked();
-        boolean breath=((CheckBox)findViewById(R.id.breath)).isChecked();
-        boolean faint=((CheckBox)findViewById(R.id.faint)).isChecked();
-        boolean dizzy=((CheckBox)findViewById(R.id.dizzy)).isChecked();
-        boolean urgent=chest||breath||faint;
-        String sys=((EditText)findViewById(R.id.sys)).getText().toString().trim();
-        String dia=((EditText)findViewById(R.id.dia)).getText().toString().trim();
-        StringBuilder result=new StringBuilder();
-        result.append("Pulse estimate: ").append(pulse==null?"not available":pulse+" BPM").append("\n\n");
-        if(urgent)result.append("URGENT SYMPTOM FLAG\nA serious symptom was selected. Seek urgent medical attention, especially if it is severe, sudden, or worsening.\n\n");
-        else if(dizzy)result.append("SYMPTOM FLAG\nDizziness was selected. Consider medical attention if it is persistent, severe, or worsening.\n\n");
-        else result.append("No urgent symptom was selected in this screening.\n\n");
-        if(sys.isEmpty()&&dia.isEmpty())result.append("Blood pressure: not entered.\n\n");
-        else if(sys.isEmpty()||dia.isEmpty())result.append("Blood pressure: incomplete entry. Enter both systolic and diastolic values from a validated device.\n\n");
-        else result.append("Blood pressure entered: ").append(sys).append('/').append(dia).append(" mmHg\n\n");
-        result.append("IMPORTANT\nThe camera pulse estimate is experimental and not clinically validated. This app does not diagnose disease and should not replace a medical device or clinician.");
-        text.setText(result.toString()); show(output);
-    }
-
-    @Override protected void onDestroy(){stopCam();super.onDestroy();}
-    private static final class Sample{final long time;final double value;Sample(long t,double v){time=t;value=v;}}
+ @Override public void onCreate(Bundle state){super.onCreate(state);setContentView(R.layout.activity_main);
+  home=findViewById(R.id.home);scan=findViewById(R.id.scan);questions=findViewById(R.id.questions);output=findViewById(R.id.output);camera=findViewById(R.id.camera);bpm=findViewById(R.id.bpm);scanStatus=findViewById(R.id.scan_status);timer=findViewById(R.id.timer);signal=findViewById(R.id.signal);progress=findViewById(R.id.scan_progress);text=findViewById(R.id.text);
+  findViewById(R.id.start).setOnClickListener(v->askCamera());findViewById(R.id.finish).setOnClickListener(v->finishScan());findViewById(R.id.result).setOnClickListener(v->makeResult());findViewById(R.id.again).setOnClickListener(v->show(home));findViewById(R.id.cancel_scan).setOnClickListener(v->{stopCam();show(home);});
+ }
+ private void show(View target){home.setVisibility(View.GONE);scan.setVisibility(View.GONE);questions.setVisibility(View.GONE);output.setVisibility(View.GONE);target.setVisibility(View.VISIBLE);}
+ private void askCamera(){if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.CAMERA},CAMERA_REQUEST);else startScan();}
+ @Override public void onRequestPermissionsResult(int r,String[] p,int[] g){super.onRequestPermissionsResult(r,p,g);if(r==CAMERA_REQUEST&&g.length>0&&g[0]==PackageManager.PERMISSION_GRANTED)startScan();else if(r==CAMERA_REQUEST){show(home);Toast.makeText(this,"Camera permission is required.",Toast.LENGTH_LONG).show();}}
+ private void startScan(){stopCam();show(scan);samples.clear();pulse=null;scanning=true;started=System.currentTimeMillis();lastUiUpdate=0;bpm.setText("Preparing scan…");scanStatus.setText("Rest your fingertip gently over the rear camera and flash. Do NOT press. Stop if uncomfortable.");signal.setText("● Waiting for gentle fingertip signal");timer.setText("0:15");progress.setProgress(0);SurfaceHolder h=camera.getHolder();if(h.getSurface().isValid())openCamera(h.getSurface());else{surfaceCallback=new SurfaceHolder.Callback(){public void surfaceCreated(SurfaceHolder x){openCamera(x.getSurface());}public void surfaceChanged(SurfaceHolder x,int f,int w,int h){}public void surfaceDestroyed(SurfaceHolder x){}};h.addCallback(surfaceCallback);}updateScanUi();}
+ private void openCamera(Surface s){try{CameraManager m=(CameraManager)getSystemService(Context.CAMERA_SERVICE);String id=findRearCamera(m);if(id==null){failScan("Rear camera not available.");return;}CameraCharacteristics c=m.getCameraCharacteristics(id);android.hardware.camera2.params.StreamConfigurationMap map=c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);if(map==null){failScan("Camera configuration unavailable.");return;}android.util.Size z=chooseReaderSize(map.getOutputSizes(ImageFormat.YUV_420_888));reader=ImageReader.newInstance(z.getWidth(),z.getHeight(),ImageFormat.YUV_420_888,3);reader.setOnImageAvailableListener(r->{Image im=null;try{im=r.acquireLatestImage();if(im!=null&&scanning&&processingFrame.compareAndSet(false,true))processFrame(im);}finally{if(im!=null)im.close();processingFrame.set(false);}},mainHandler);if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)return;m.openCamera(id,new CameraDevice.StateCallback(){public void onOpened(CameraDevice d){device=d;createSession(s,c);}public void onDisconnected(CameraDevice d){d.close();if(device==d)device=null;if(scanning)failScan("Camera disconnected. Please try again.");}public void onError(CameraDevice d,int e){d.close();if(device==d)device=null;if(scanning)failScan("Camera could not be started. Please try again.");}},mainHandler);}catch(Exception e){failScan("Camera setup failed. Please try again.");}}
+ private String findRearCamera(CameraManager m)throws Exception{for(String id:m.getCameraIdList()){Integer f=m.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING);if(f!=null&&f==CameraCharacteristics.LENS_FACING_BACK)return id;}return null;}
+ private android.util.Size chooseReaderSize(android.util.Size[] a){if(a==null||a.length==0)return new android.util.Size(640,480);ArrayList<android.util.Size> c=new ArrayList<>(Arrays.asList(a));Collections.sort(c,Comparator.comparingLong(x->(long)x.getWidth()*x.getHeight()));for(android.util.Size z:c)if(z.getWidth()>=320&&z.getWidth()<=1280&&z.getHeight()>=240&&z.getHeight()<=960)return z;return c.get(0);}
+ private void createSession(Surface p,CameraCharacteristics c){if(device==null||reader==null)return;try{device.createCaptureSession(Arrays.asList(p,reader.getSurface()),new CameraCaptureSession.StateCallback(){public void onConfigured(CameraCaptureSession cs){if(device==null||!scanning)return;session=cs;try{CaptureRequest.Builder q=device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);q.addTarget(p);q.addTarget(reader.getSurface());Boolean f=c.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);if(Boolean.TRUE.equals(f))q.set(CaptureRequest.FLASH_MODE,CaptureRequest.FLASH_MODE_TORCH);cs.setRepeatingRequest(q.build(),null,mainHandler);}catch(Exception e){failScan("Could not start the scan camera.");}}public void onConfigureFailed(CameraCaptureSession cs){failScan("Camera preview could not be configured.");}},mainHandler);}catch(Exception e){failScan("Could not start camera session.");}}
+ private void processFrame(Image im){long now=System.currentTimeMillis();if(!scanning||now-started<1200)return;Image.Plane p=im.getPlanes()[0];ByteBuffer b=p.getBuffer().duplicate();int w=im.getWidth(),h=im.getHeight(),rs=p.getRowStride(),ps=p.getPixelStride();long sum=0,count=0;for(int y=h/4;y<3*h/4;y+=4)for(int x=w/4;x<3*w/4;x+=4){int i=y*rs+x*ps;if(i>=0&&i<b.limit()){sum+=b.get(i)&255;count++;}}if(count==0)return;samples.add(new Sample(now,(double)sum/count));while(!samples.isEmpty()&&now-samples.get(0).time>SCAN_TARGET_MS)samples.remove(0);if(now-lastUiUpdate>=500){lastUiUpdate=now;Integer e=estimatePulse();if(e!=null)pulse=e;long elapsed=now-started;Integer shown=pulse;runOnUiThread(()->{updateScanUi();if(elapsed<5000){bpm.setText("Calibrating…");signal.setText("● Detecting gentle signal");}else if(shown==null){bpm.setText("Reading…");signal.setText("● Keep still — no pressure");}else{bpm.setText("Estimated pulse\n"+shown+" BPM");signal.setText("● Signal detected");}});}if(now-started>=SCAN_TARGET_MS)runOnUiThread(this::finishScan);}
+ private Integer estimatePulse(){if(samples.size()<MIN_SAMPLES)return null;double mean=0;for(Sample s:samples)mean+=s.value;mean/=samples.size();double v=0;for(Sample s:samples){double d=s.value-mean;v+=d*d;}double sd=Math.sqrt(v/samples.size());if(sd<0.7)return null;int peaks=0;long last=-Long.MAX_VALUE/4;for(int i=1;i<samples.size()-1;i++){double a=samples.get(i-1).value,c=samples.get(i).value,d=samples.get(i+1).value;if(c>a&&c>=d&&c-mean>0.35*sd&&samples.get(i).time-last>=MIN_PEAK_GAP_MS){peaks++;last=samples.get(i).time;}}double sec=(samples.get(samples.size()-1).time-samples.get(0).time)/1000.0;if(sec<6||peaks<4)return null;int e=(int)Math.round(peaks/sec*60);return e>=40&&e<=180?e:null;}
+ private void updateScanUi(){if(!scanning)return;long e=Math.max(0,System.currentTimeMillis()-started);int rem=(int)Math.max(0,(SCAN_TARGET_MS-e+999)/1000);timer.setText("0:"+(rem<10?"0":"")+rem);progress.setProgress((int)Math.min(100,e*100/SCAN_TARGET_MS));if(e>=SCAN_TARGET_MS)finishScan();}
+ private void finishScan(){if(!scanning)return;Integer e=estimatePulse();if(e!=null)pulse=e;scanning=false;stopCam();show(questions);}
+ private void failScan(String m){scanning=false;stopCam();show(scan);bpm.setText(m);signal.setText("● Scan stopped");}
+ private void stopCam(){try{if(session!=null)session.close();if(device!=null)device.close();if(reader!=null)reader.close();}catch(Exception ignored){}session=null;device=null;reader=null;scanning=false;if(surfaceCallback!=null){try{camera.getHolder().removeCallback(surfaceCallback);}catch(Exception ignored){}surfaceCallback=null;}}
+ private boolean checked(int id){return ((CheckBox)findViewById(id)).isChecked();}
+ private void makeResult(){
+  int[] ids={R.id.headache,R.id.vision,R.id.eyePain,R.id.ear,R.id.throat,R.id.chest,R.id.breath,R.id.palpitations,R.id.abdominal,R.id.nausea,R.id.bowel,R.id.urine,R.id.back,R.id.neck,R.id.joint,R.id.arm,R.id.hand,R.id.hip,R.id.leg,R.id.foot,R.id.weakness,R.id.skin,R.id.fever,R.id.fatigue,R.id.dizzy,R.id.faint,R.id.confusion};
+  String[] names={"Headache/head pressure","Vision change","Eye pain/irritation","Ear/hearing symptom","Throat/swallowing symptom","Chest pain/pressure","Serious breathing trouble","Heartbeat change","Abdominal pain","Nausea/vomiting","Bowel change/blood in stool","Urinary symptom","Back/waist pain","Neck symptom","Joint pain/swelling","Arm/shoulder pain","Hand/finger symptom","Hip pain","Leg/knee pain","Foot/ankle symptom","New weakness/numbness/trouble walking","Skin change/wound/swelling","Fever/chills","Unusual fatigue","Dizziness/feeling faint","Fainting/nearly fainting","Severe confusion/difficulty staying awake"};
+  StringBuilder selected=new StringBuilder();int count=0;for(int i=0;i<ids.length;i++)if(checked(ids[i])){if(count++>0)selected.append(", ");selected.append(names[i]);}
+  boolean urgent=checked(R.id.chest)||checked(R.id.breath)||checked(R.id.faint)||checked(R.id.confusion)||checked(R.id.weakness);
+  String sys=get(R.id.sys),dia=get(R.id.dia),temp=get(R.id.temp),spo2=get(R.id.spo2),glucose=get(R.id.glucose);
+  StringBuilder r=new StringBuilder();r.append("GENERAL CHECK SUMMARY\n\n");
+  r.append("Pulse estimate: ").append(pulse==null?"not available":pulse+" BPM").append("\n");
+  r.append("Symptoms selected: ").append(count==0?"None reported":selected).append("\n\n");
+  if(urgent)r.append("URGENT SYMPTOM FLAG\nA serious symptom was selected. Seek urgent medical care, especially for severe/sudden symptoms.\n\n");
+  else r.append("No urgent symptom was selected in this screening.\n\n");
+  r.append("MEASUREMENTS\n");r.append("Blood pressure: ").append(sys.isEmpty()&&dia.isEmpty()?"not entered":sys.isEmpty()||dia.isEmpty()?"incomplete":sys+"/"+dia+" mmHg").append("\n");
+  r.append("Temperature: ").append(temp.isEmpty()?"not entered":temp+" °C").append("\n");r.append("SpO₂: ").append(spo2.isEmpty()?"not entered":spo2+" %").append("\n");r.append("Glucose: ").append(glucose.isEmpty()?"not entered":glucose).append("\n\n");
+  r.append("IMPORTANT\nThis is a symptom and wellness screening, not a diagnosis. Camera pulse is experimental and not clinically validated. Measurement values must come from appropriate validated devices. If symptoms are severe, sudden, or worsening, seek medical care.");
+  text.setText(r.toString());show(output);
+ }
+ private String get(int id){return ((EditText)findViewById(id)).getText().toString().trim();}
+ @Override protected void onDestroy(){stopCam();super.onDestroy();}
+ private static final class Sample{final long time;final double value;Sample(long t,double v){time=t;value=v;}}
 }
