@@ -1,0 +1,61 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+
+    <LinearLayout android:id="@+id/home" android:orientation="vertical" android:padding="24dp"
+        android:layout_width="match_parent" android:layout_height="match_parent">
+        <TextView android:text="SHEFIU Health Check" android:textSize="29sp" android:textStyle="bold"
+            android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <TextView android:text="Quick wellness screening. Not a medical diagnosis." android:textSize="16sp"
+            android:paddingTop="8dp" android:paddingBottom="20dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <Button android:id="@+id/start" android:text="START HEALTH CHECK" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/scan" android:orientation="vertical" android:visibility="gone" android:background="#050505"
+        android:layout_width="match_parent" android:layout_height="match_parent">
+        <TextView android:text="Fingertip pulse scan" android:textColor="#FFFFFF" android:textSize="24sp" android:textStyle="bold"
+            android:paddingLeft="20dp" android:paddingTop="18dp" android:paddingRight="20dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <TextView android:id="@+id/scan_status" android:text="Place one fingertip gently over the rear camera and flash." android:textColor="#DDFFFFFF" android:textSize="15sp"
+            android:padding="20dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+            <SurfaceView android:id="@+id/camera" android:layout_width="match_parent" android:layout_height="match_parent"/>
+            <View android:layout_width="250dp" android:layout_height="250dp" android:layout_gravity="center" android:background="@drawable/scan_ring"/>
+            <LinearLayout android:orientation="vertical" android:gravity="center" android:layout_gravity="center"
+                android:background="#99000000" android:padding="16dp" android:layout_width="wrap_content" android:layout_height="wrap_content">
+                <TextView android:id="@+id/bpm" android:text="Preparing scan…" android:textColor="#FFFFFF" android:textSize="22sp" android:textStyle="bold" android:gravity="center"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                <TextView android:id="@+id/signal" android:text="● Waiting for fingertip signal" android:textColor="#FFFFFF" android:textSize="14sp" android:paddingTop="6dp"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+        </FrameLayout>
+        <ProgressBar android:id="@+id/scan_progress" style="?android:attr/progressBarStyleHorizontal" android:max="100" android:progress="0"
+            android:layout_width="match_parent" android:layout_height="6dp"/>
+        <TextView android:id="@+id/timer" android:text="0:15" android:textColor="#FFFFFF" android:textSize="18sp" android:gravity="center" android:padding="8dp"
+            android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <LinearLayout android:orientation="horizontal" android:padding="8dp" android:layout_width="match_parent" android:layout_height="wrap_content">
+            <Button android:id="@+id/cancel_scan" android:text="CANCEL" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"/>
+            <Button android:id="@+id/finish" android:text="FINISH SCAN" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <ScrollView android:id="@+id/questions" android:visibility="gone" android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:orientation="vertical" android:padding="24dp" android:layout_width="match_parent" android:layout_height="wrap_content">
+            <TextView android:text="Health questions" android:textSize="27sp" android:textStyle="bold" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <TextView android:text="Select any symptoms you are experiencing now." android:textSize="15sp" android:paddingTop="6dp" android:paddingBottom="10dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <CheckBox android:id="@+id/chest" android:text="Chest pain or pressure" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <CheckBox android:id="@+id/breath" android:text="Serious trouble breathing" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <CheckBox android:id="@+id/faint" android:text="Fainted or may faint" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <CheckBox android:id="@+id/dizzy" android:text="Dizziness" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <EditText android:id="@+id/sys" android:hint="Blood pressure systolic (optional)" android:inputType="number" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <EditText android:id="@+id/dia" android:hint="Blood pressure diastolic (optional)" android:inputType="number" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <Button android:id="@+id/result" android:text="VIEW CHECK RESULT" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        </LinearLayout>
+    </ScrollView>
+
+    <ScrollView android:id="@+id/output" android:visibility="gone" android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:orientation="vertical" android:padding="24dp" android:layout_width="match_parent" android:layout_height="wrap_content">
+            <TextView android:text="Your check" android:textSize="28sp" android:textStyle="bold" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <TextView android:id="@+id/text" android:textSize="17sp" android:paddingTop="18dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <Button android:id="@+id/again" android:text="START ANOTHER CHECK" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        </LinearLayout>
+    </ScrollView>
+</FrameLayout>
