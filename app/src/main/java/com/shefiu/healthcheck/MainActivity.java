@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MainActivity extends Activity {
  private static final int CAMERA_REQUEST=7; private static final long SCAN_TARGET_MS=15000L,MIN_PEAK_GAP_MS=350L; private static final int MIN_SAMPLES=50;
  private final Handler mainHandler=new Handler(Looper.getMainLooper()); private final ArrayList<Sample> samples=new ArrayList<>(); private final AtomicBoolean processingFrame=new AtomicBoolean(false);
- private LinearLayout home,scan,medscreen; private ScrollView questions,output; private SurfaceView camera; private TextView bpm,scanStatus,timer,signal,text,medtext; private ProgressBar progress;
+ private LinearLayout home,scan; private ScrollView questions,output,medscreen; private SurfaceView camera; private TextView bpm,scanStatus,timer,signal,text,medtext; private ProgressBar progress;
  private CameraDevice device; private CameraCaptureSession session; private ImageReader reader; private SurfaceHolder.Callback surfaceCallback; private long started,lastUiUpdate; private Integer pulse; private boolean scanning;
 
  @Override public void onCreate(Bundle state){
