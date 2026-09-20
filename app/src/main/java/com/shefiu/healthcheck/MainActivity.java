@@ -104,20 +104,27 @@ public class MainActivity extends Activity {
  private void makeResult(){
   int[] ids={R.id.headache,R.id.vision,R.id.eyePain,R.id.ear,R.id.throat,R.id.chest,R.id.breath,R.id.palpitations,R.id.abdominal,R.id.nausea,R.id.bowel,R.id.urine,R.id.back,R.id.neck,R.id.joint,R.id.arm,R.id.hand,R.id.hip,R.id.leg,R.id.foot,R.id.weakness,R.id.skin,R.id.fever,R.id.fatigue,R.id.dizzy,R.id.faint,R.id.confusion};
   String[] names={"Headache/head pressure","Vision change","Eye pain/irritation","Ear/hearing symptom","Throat/swallowing symptom","Chest pain/pressure","Serious breathing trouble","Heartbeat change","Abdominal pain","Nausea/vomiting","Bowel change/blood in stool","Urinary symptom","Back/waist pain","Neck symptom","Joint pain/swelling","Arm/shoulder pain","Hand/finger symptom","Hip pain","Leg/knee pain","Foot/ankle symptom","New weakness/numbness/trouble walking","Skin change/wound/swelling","Fever/chills","Unusual fatigue","Dizziness/feeling faint","Fainting/nearly fainting","Severe confusion/difficulty staying awake"};
-  StringBuilder selected=new StringBuilder();int count=0;for(int i=0;i<ids.length;i++)if(checked(ids[i])){if(count++>0)selected.append(", ");selected.append(names[i]);}
+  StringBuilder selected=new StringBuilder();int count=0;for(int i=0;i<ids.length;i++)if(checked(ids[i])){if(count++>0)selected.append("\n• ");selected.append(names[i]);}
   boolean urgent=checked(R.id.chest)||checked(R.id.breath)||checked(R.id.faint)||checked(R.id.confusion)||checked(R.id.weakness);
   String sys=get(R.id.sys),dia=get(R.id.dia),temp=get(R.id.temp),spo2=get(R.id.spo2),glucose=get(R.id.glucose);
-  StringBuilder r=new StringBuilder();r.append("GENERAL CHECK SUMMARY\n\n");
-  r.append("Pulse estimate: ").append(pulse==null?"not available":pulse+" BPM").append("\n");
-  r.append("Symptoms selected: ").append(count==0?"None reported":selected).append("\n\n");
-  if(urgent)r.append("URGENT SYMPTOM FLAG\nA serious symptom was selected. Seek urgent medical care, especially for severe/sudden symptoms.\n\n");
-  else r.append("No urgent symptom was selected in this screening.\n\n");
-  r.append("MEASUREMENTS\n");r.append("Blood pressure: ").append(sys.isEmpty()&&dia.isEmpty()?"not entered":sys.isEmpty()||dia.isEmpty()?"incomplete":sys+"/"+dia+" mmHg").append("\n");
-  r.append("Temperature: ").append(temp.isEmpty()?"not entered":temp+" °C").append("\n");r.append("SpO₂: ").append(spo2.isEmpty()?"not entered":spo2+" %").append("\n");r.append("Glucose: ").append(glucose.isEmpty()?"not entered":glucose).append("\n\n");
-  r.append("IMPORTANT\nThis is a symptom and wellness screening, not a diagnosis. Camera pulse is experimental and not clinically validated. Measurement values must come from appropriate validated devices. If symptoms are severe, sudden, or worsening, seek medical care.");
+  StringBuilder r=new StringBuilder();
+  r.append("SCREENING SUMMARY\n\nPULSE\n");
+  r.append(pulse==null?"• Experimental camera estimate: Not available\n":"• Experimental camera estimate: "+pulse+" BPM\n");
+  r.append("Camera pulse is experimental and not clinically validated. Do not use it for diagnosis or treatment decisions.\n\n");
+  r.append("SYMPTOMS REPORTED\n");
+  r.append(count==0?"• None reported\n":"• "+selected+"\n");
+  r.append("\n");
+  if(urgent)r.append("URGENT SAFETY NOTICE\nA serious symptom was selected. Seek urgent medical care, especially if the symptom is severe, sudden, or worsening.\n\n");
+  else r.append("SAFETY CHECK\nNo urgent symptom was selected in this screening. This does not rule out illness.\n\n");
+  r.append("MEASUREMENTS FROM VALIDATED DEVICES\n");
+  r.append("Blood pressure: ").append(sys.isEmpty()&&dia.isEmpty()?"Not entered":sys.isEmpty()||dia.isEmpty()?"Incomplete":sys+"/"+dia+" mmHg").append("\n");
+  r.append("Temperature: ").append(temp.isEmpty()?"Not entered":temp+" °C").append("\n");
+  r.append("SpO₂: ").append(spo2.isEmpty()?"Not entered":spo2+" %").append("\n");
+  r.append("Glucose: ").append(glucose.isEmpty()?"Not entered":glucose).append("\n\n");
+  r.append("IMPORTANT\nThis is a symptom and wellness screening, not a diagnosis. Measurement values must come from appropriate validated devices. If symptoms are severe, sudden, or worsening, seek medical care.");
   text.setText(r.toString());show(output);
  }
- private String get(int id){return ((EditText)findViewById(id)).getText().toString().trim();}
+private String get(int id){return ((EditText)findViewById(id)).getText().toString().trim();}
  @Override protected void onDestroy(){stopCam();super.onDestroy();}
  private static final class Sample{final long time;final double value;Sample(long t,double v){time=t;value=v;}}
 }
