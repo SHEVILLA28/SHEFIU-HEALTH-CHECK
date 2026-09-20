@@ -94,8 +94,44 @@ public class MainActivity extends Activity {
  private String findRearCamera(CameraManager m)throws Exception{for(String id:m.getCameraIdList()){Integer f=m.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING);if(f!=null&&f==CameraCharacteristics.LENS_FACING_BACK)return id;}return null;}
  private android.util.Size chooseReaderSize(android.util.Size[] a){if(a==null||a.length==0)return new android.util.Size(640,480);ArrayList<android.util.Size> c=new ArrayList<>(Arrays.asList(a));Collections.sort(c,Comparator.comparingLong(x->(long)x.getWidth()*x.getHeight()));for(android.util.Size z:c)if(z.getWidth()>=320&&z.getWidth()<=1280&&z.getHeight()>=240&&z.getHeight()<=960)return z;return c.get(0);}
  private void createSession(Surface p,CameraCharacteristics c){if(device==null||reader==null)return;try{device.createCaptureSession(Arrays.asList(p,reader.getSurface()),new CameraCaptureSession.StateCallback(){public void onConfigured(CameraCaptureSession cs){if(device==null||!scanning)return;session=cs;try{CaptureRequest.Builder q=device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);q.addTarget(p);q.addTarget(reader.getSurface());Boolean f=c.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);if(Boolean.TRUE.equals(f))q.set(CaptureRequest.FLASH_MODE,CaptureRequest.FLASH_MODE_TORCH);cs.setRepeatingRequest(q.build(),null,mainHandler);}catch(Exception e){failScan("Could not start the scan camera.");}}public void onConfigureFailed(CameraCaptureSession cs){failScan("Camera preview could not be configured.");}},mainHandler);}catch(Exception e){failScan("Could not start camera session.");}}
- private void processFrame(Image im){long now=System.currentTimeMillis();if(!scanning||now-started<1200)return;Image.Plane p=im.getPlanes()[0];ByteBuffer b=p.getBuffer().duplicate();int w=im.getWidth(),h=im.getHeight(),rs=p.getRowStride(),ps=p.getPixelStride();long sum=0,count=0;for(int y=h/4;y<3*h/4;y+=4)for(int x=w/4;x<3*w/4;x+=4){int i=y*rs+x*ps;if(i>=0&&i<b.limit()){sum+=b.get(i)&255;count++;}}if(count==0)return;samples.add(new Sample(now,(double)sum/count));while(!samples.isEmpty()&&now-samples.get(0).time>SCAN_TARGET_MS)samples.remove(0);if(now-lastUiUpdate>=500){lastUiUpdate=now;Integer e=estimatePulse();if(e!=null)pulse=e;long elapsed=now-started;Integer shown=pulse;runOnUiThread(()->{updateScanUi();if(elapsed<5000){bpm.setText("Calibrating…");signal.setText("● Detecting gentle signal");}else if(shown==null){bpm.setText("Reading…");signal.setText("● Keep still — no pressure");}else{bpm.setText("Estimated pulse\n"+shown+" BPM");signal.setText("● Signal detected");}});}if(now-started>=SCAN_TARGET_MS)runOnUiThread(this::finishScan);}
- private Integer estimatePulse(){if(samples.size()<MIN_SAMPLES)return null;double mean=0;for(Sample s:samples)mean+=s.value;mean/=samples.size();double v=0;for(Sample s:samples){double d=s.value-mean;v+=d*d;}double sd=Math.sqrt(v/samples.size());if(sd<0.7)return null;int peaks=0;long last=-Long.MAX_VALUE/4;for(int i=1;i<samples.size()-1;i++){double a=samples.get(i-1).value,c=samples.get(i).value,d=samples.get(i+1).value;if(c>a&&c>=d&&c-mean>0.35*sd&&samples.get(i).time-last>=MIN_PEAK_GAP_MS){peaks++;last=samples.get(i).time;}}double sec=(samples.get(samples.size()-1).time-samples.get(0).time)/1000.0;if(sec<6||peaks<4)return null;int e=(int)Math.round(peaks/sec*60);return e>=40&&e<=180?e:null;}
+ private void processFrame(Image im){
+  long now=System.currentTimeMillis();
+  if(!scanning||now-started<1200)return;
+  Image.Plane[] planes=im.getPlanes();
+  if(planes.length<3)return;
+  Image.Plane yp=planes[0],up=planes[1],vp=planes[2];
+  ByteBuffer yb=yp.getBuffer().duplicate(),ub=up.getBuffer().duplicate(),vb=vp.getBuffer().duplicate();
+  int w=im.getWidth(),h=im.getHeight();
+  int yrs=yp.getRowStride(),yps=yp.getPixelStride(),urs=up.getRowStride(),ups=up.getPixelStride(),vrs=vp.getRowStride(),vps=vp.getPixelStride();
+  double redSum=0;int skin=0,total=0;
+  for(int y=h/4;y<3*h/4;y+=4)for(int x=w/4;x<3*w/4;x+=4){
+    int yi=y*yrs+x*yps, ui=(y/2)*urs+(x/2)*ups, vi=(y/2)*vrs+(x/2)*vps;
+    if(yi<0||ui<0||vi<0||yi>=yb.limit()||ui>=ub.limit()||vi>=vb.limit())continue;
+    double Y=yb.get(yi)&255,U=ub.get(ui)&255,V=vb.get(vi)&255;
+    double R=Y+1.402*(V-128),G=Y-0.344*(U-128)-0.714*(V-128),B=Y+1.772*(U-128);
+    total++;
+    if(R>65&&G>35&&B>20&&R>=G*0.92&&G>=B*0.85&&R<=255){
+      skin++;redSum+=R;
+    }
+  }
+  if(total<10)return;
+  double skinRatio=(double)skin/total;
+  if(skinRatio<0.28)return;
+  samples.add(new Sample(now,redSum/Math.max(1,skin)));
+  while(!samples.isEmpty()&&now-samples.get(0).time>SCAN_TARGET_MS)samples.remove(0);
+  if(now-lastUiUpdate>=500){
+    lastUiUpdate=now;Integer e=estimatePulse();if(e!=null)pulse=e;
+    long elapsed=now-started;Integer shown=pulse;
+    runOnUiThread(()->{
+      updateScanUi();
+      if(elapsed<5000){bpm.setText("Calibrating…");signal.setText("● Checking fingertip signal");}
+      else if(shown==null){bpm.setText("Reading…");signal.setText("● No reliable fingertip signal — keep fingertip gently over camera");}
+      else{bpm.setText("Estimated pulse\n"+shown+" BPM");signal.setText("● Fingertip signal detected");}
+    });
+  }
+  if(now-started>=SCAN_TARGET_MS)runOnUiThread(this::finishScan);
+ }
+ private Integer estimatePulse(){if(samples.size()<MIN_SAMPLES)return null;double mean=0;for(Sample s:samples)mean+=s.value;mean/=samples.size();double v=0;for(Sample s:samples){double d=s.value-mean;v+=d*d;}double sd=Math.sqrt(v/samples.size());if(sd<1.0)return null;int peaks=0;long last=-Long.MAX_VALUE/4;for(int i=1;i<samples.size()-1;i++){double a=samples.get(i-1).value,c=samples.get(i).value,d=samples.get(i+1).value;if(c>a&&c>=d&&c-mean>0.45*sd&&samples.get(i).time-last>=MIN_PEAK_GAP_MS){peaks++;last=samples.get(i).time;}}double sec=(samples.get(samples.size()-1).time-samples.get(0).time)/1000.0;if(sec<8||peaks<5)return null;int e=(int)Math.round(peaks/sec*60);return e>=45&&e<=170?e:null;}
  private void updateScanUi(){if(!scanning)return;long e=Math.max(0,System.currentTimeMillis()-started);int rem=(int)Math.max(0,(SCAN_TARGET_MS-e+999)/1000);timer.setText("0:"+(rem<10?"0":"")+rem);progress.setProgress((int)Math.min(100,e*100/SCAN_TARGET_MS));if(e>=SCAN_TARGET_MS)finishScan();}
  private void finishScan(){if(!scanning)return;Integer e=estimatePulse();if(e!=null)pulse=e;scanning=false;stopCam();show(questions);}
  private void failScan(String m){scanning=false;stopCam();show(scan);bpm.setText(m);signal.setText("● Scan stopped");}
